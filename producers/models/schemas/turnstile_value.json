@@ -1,4 +1,5 @@
 {
+  "namespace": "com.udacity",
   "type": "record",
   "name": "turnstile.value",
   "fields": [
