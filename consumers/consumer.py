@@ -37,18 +37,18 @@ class KafkaConsumer:
         #
         #
         self.broker_properties = {
-                #
-                # TODO
-                #
+            "group.id": "consumer",
+            "bootstrap.servers": ["PLAINTEXT://localhost:9092"],
+            "auto.offset.reset": "earliest"
         }
 
         # TODO: Create the Consumer, using the appropriate type.
         if is_avro is True:
             self.broker_properties["schema.registry.url"] = "http://localhost:8081"
-            #self.consumer = AvroConsumer(...)
+            self.consumer = AvroConsumer(**self.broker_properties)
         else:
-            #self.consumer = Consumer(...)
-            pass
+            self.consumer = Consumer(**self.broker_properties)
+
 
         #
         #
@@ -56,20 +56,15 @@ class KafkaConsumer:
         # how the `on_assign` callback should be invoked.
         #
         #
-        # self.consumer.subscribe( TODO )
+        self.consumer.subscribe(self.topic_name_pattern, on_assign=self.on_assign)
 
     def on_assign(self, consumer, partitions):
         """Callback for when topic assignment takes place"""
         # TODO: If the topic is configured to use `offset_earliest` set the partition offset to
         # the beginning or earliest
-        logger.info("on_assign is incomplete - skipping")
+        logger.info("on_assign completed")
         for partition in partitions:
-            pass
-            #
-            #
-            # TODO
-            #
-            #
+            consumer.seek(partition)
 
         logger.info("partitions assigned for %s", self.topic_name_pattern)
         consumer.assign(partitions)
@@ -91,14 +86,18 @@ class KafkaConsumer:
         # is retrieved.
         #
         #
-        logger.info("_consume is incomplete - skipping")
+        while True:
+            message = self.consumer.poll(1.0)
+            if message is 0:
+                print("no message received")
+            elif message.error() is not None:
+                print(f"message error {message.error()}")
+            else:
+                print(f"{message} consumed")
+        logger.info("_consume completed")
         return 0
 
 
     def close(self):
         """Cleans up any open kafka consumers"""
-        #
-        #
-        # TODO: Cleanup the kafka consumer
-        #
-        #
+        self.consumer.close()
