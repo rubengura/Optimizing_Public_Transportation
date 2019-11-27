@@ -35,7 +35,7 @@ class Producer:
         # Kafka Host URLs: PLAINTEXT://localhost:9092,PLAINTEXT://localhost:9093,PLAINTEXT://localhost:9094
         # Schema registry Host URL: http://localhost:8081
         self.broker_properties = {
-            "bootstrap.servers": ["PLAINTEXT://localhost:9092"],
+            "bootstrap.servers": "PLAINTEXT://localhost:9092",
             "schema.registry.url": "http://localhost:8081"
         }
 
@@ -62,7 +62,7 @@ class Producer:
         topic_metadata = client.list_topics(timeout = 5)
 
         # Check if topic exists in client.list_topics
-        if self.topic_name in set(t.topic for t in iter(topic_metadata.topic.values())):
+        if self.topic_name in topic_metadata.topics:
             logger.info(f"topic {self.topic_name} already exists")
             return
         else:
@@ -75,7 +75,7 @@ class Producer:
             NewTopic(
             topic=self.topic_name,
             num_partitions=self.num_partitions,
-            num_replicas=self.num_replicas)
+            replication_factor=self.num_replicas)
         ])
 
 
