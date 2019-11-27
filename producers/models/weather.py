@@ -80,7 +80,7 @@ class Weather(Producer):
         #
         logger.info("weather kafka proxy integration complete")
         resp = requests.post(
-           f"{Weather.rest_proxy_url}/topics/data.weather",
+           f"{Weather.rest_proxy_url}/topics/chicago.transport.weather",
            headers={"Content-Type": "application/vnd.kafka.avro.v2+json"},
            data=json.dumps(
                {
