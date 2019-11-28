@@ -37,7 +37,7 @@ class Weather(Producer):
         #
         #
         super().__init__(
-            "data.weather", # TODO: Come up with a better topic name
+            "chicago.transport.weather",
             key_schema=Weather.key_schema,
             value_schema=Weather.value_schema,
             num_partitions=5,
@@ -78,25 +78,31 @@ class Weather(Producer):
         # specify the Avro schemas and verify that you are using the correct Content-Type header.
         #
         #
-        logger.info("weather kafka proxy integration complete")
         resp = requests.post(
-           f"{Weather.rest_proxy_url}/topics/chicago.transport.weather",
+           f"{Weather.rest_proxy_url}/topics/{self.topic_name}",
            headers={"Content-Type": "application/vnd.kafka.avro.v2+json"},
            data=json.dumps(
                {
-                   "key_schema": Weather.key_schema,
-                   "value_schema": Weather.value_schema,
+                   "key_schema": json.dumps(Weather.key_schema),
+                   "value_schema": json.dumps(Weather.value_schema),
                    "records": [
                        {
-                           "temperature": self.temp,
-                           "status": self.status
+                           "key": {"timestamp": self.time_millis()},
+                           "value": {
+                               "temperature": self.temp,
+                               "status": self.status.name
+                           }
                        }
                    ]
                }
            ),
         )
+#         resp = requests.get(
+#             f"{Weather.rest_proxy_url}/topics",
+#         )
         resp.raise_for_status()
-
+#         print(json.dumps(resp.json(), indent=2))
+        logger.info("weather kafka proxy integration complete")
         logger.debug(
             "sent weather data to kafka, temp: %s, status: %s",
             self.temp,

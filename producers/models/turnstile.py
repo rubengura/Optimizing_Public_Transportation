@@ -14,11 +14,8 @@ logger = logging.getLogger(__name__)
 class Turnstile(Producer):
     key_schema = avro.load(f"{Path(__file__).parents[0]}/schemas/turnstile_key.json")
 
-    #
-    # TODO: Define this value schema in `schemas/turnstile_value.json, then uncomment the below
-    #
     value_schema = avro.load(
-        f"{Path(__file__).parents[0]}/schemas/turnstile_value.json"
+       f"{Path(__file__).parents[0]}/schemas/turnstile_value.json"
     )
 
     def __init__(self, station):
@@ -31,16 +28,10 @@ class Turnstile(Producer):
             .replace("'", "")
         )
 
-        #
-        #
-        # TODO: Complete the below by deciding on a topic name, number of partitions, and number of
-        # replicas
-        #
-        #
         super().__init__(
-            "chicago.transport.turnstile", # TODO: Come up with a better topic name
+            "chicago.transport.turnstile",
             key_schema=Turnstile.key_schema,
-            value_schema=Turnstile.value_schema, # TODO: Uncomment once schema is defined
+            value_schema=Turnstile.value_schema,
             num_partitions=5,
             num_replicas=1,
         )
@@ -51,12 +42,7 @@ class Turnstile(Producer):
         """Simulates riders entering through the turnstile."""
         num_entries = self.turnstile_hardware.get_entries(timestamp, time_step)
         # logger.info("turnstile kafka integration incomplete - skipping")
-        #
-        #
-        # TODO: Complete this function by emitting a message to the turnstile topic for the number
-        # of entries that were calculated
-        #
-        logger.debug(f"{num_entries} riders have entered at {self.station} station at {timestamp.isoformat()}")
+        logger.debug(f"{num_entries} riders have entered at {self.station.name} station at {timestamp.isoformat()}")
 
         for entry in range(num_entries):
             try:
@@ -64,11 +50,10 @@ class Turnstile(Producer):
                     topic=self.topic_name,
                     key={"timestamp": self.time_millis()},
                     value={
-                        "station_id": self.station,
-                        "station_name": Turnstile.station_name,
-                        "line": Turnstile.line # MUST BE ADDRESSED
+                        "station_id": self.station.station_id,
+                        "station_name": self.station.name,
+                        "line": self.station.color.name
                     }
                 )
             except Exception as e:
                 logger.fatal(e)
-                raise e

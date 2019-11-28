@@ -37,17 +37,17 @@ class KafkaConsumer:
         #
         #
         self.broker_properties = {
-            "group.id": "consumer",
-            "bootstrap.servers": ["PLAINTEXT://localhost:9092"],
+            "group.id": "consumer_group",
+            "bootstrap.servers": "PLAINTEXT://localhost:9092",
             "auto.offset.reset": "earliest"
         }
 
         # TODO: Create the Consumer, using the appropriate type.
         if is_avro is True:
             self.broker_properties["schema.registry.url"] = "http://localhost:8081"
-            self.consumer = AvroConsumer(**self.broker_properties)
+            self.consumer = AvroConsumer(self.broker_properties)
         else:
-            self.consumer = Consumer(**self.broker_properties)
+            self.consumer = Consumer(self.broker_properties)
 
 
         #
@@ -56,7 +56,7 @@ class KafkaConsumer:
         # how the `on_assign` callback should be invoked.
         #
         #
-        self.consumer.subscribe(self.topic_name_pattern, on_assign=self.on_assign)
+        self.consumer.subscribe([self.topic_name_pattern], on_assign=self.on_assign)
 
     def on_assign(self, consumer, partitions):
         """Callback for when topic assignment takes place"""
@@ -64,7 +64,9 @@ class KafkaConsumer:
         # the beginning or earliest
         logger.info("on_assign completed")
         for partition in partitions:
-            consumer.seek(partition)
+            if self.offset_earliest is True:
+                partition.offset = confluent_kafka.OFFSET_BEGINNING
+#             consumer.seek(partition)
 
         logger.info("partitions assigned for %s", self.topic_name_pattern)
         consumer.assign(partitions)
@@ -100,4 +102,5 @@ class KafkaConsumer:
 
     def close(self):
         """Cleans up any open kafka consumers"""
+        logger.debug("closing consumer")
         self.consumer.close()
