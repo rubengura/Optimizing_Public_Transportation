@@ -59,3 +59,24 @@ jobs:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yaml
         run: docker compose config -q
+
+  # The only job that needs Docker. It brings up the real stack and checks the
+  # bytes the producers put on the wire, which is what guards the Avro
+  # serialization API against regressions.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Start the stack
+        run: docker compose up -d --wait
+      - name: Install producers
+        run: pip install -r producers/requirements.txt -r requirements-dev.txt
+      - name: Integration tests
+        working-directory: producers
+        run: pytest -m integration -q
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail 80
