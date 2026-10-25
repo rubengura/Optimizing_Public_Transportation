@@ -18,8 +18,8 @@ class Weather:
         """Handles incoming weather data"""
         try:
             value = message.value()
-            # AvroConsumer already hands back a decoded dict; a plain Consumer
-            # would hand back the raw bytes.
+            # Avro topics reach here already decoded into a dict; a JSON topic
+            # would hand over the raw bytes.
             if isinstance(value, (bytes, bytearray, str)):
                 value = json.loads(value)
             self.temperature = value["temperature"]

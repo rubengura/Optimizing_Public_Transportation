@@ -1,10 +1,7 @@
 """Creates a turnstile data producer"""
 import logging
-from pathlib import Path
 
-from confluent_kafka import avro
-
-from models.producer import Producer
+from models.producer import Producer, load_schema
 from models.turnstile_hardware import TurnstileHardware
 
 
@@ -12,11 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 class Turnstile(Producer):
-    key_schema = avro.load(f"{Path(__file__).parents[0]}/schemas/turnstile_key.json")
-
-    value_schema = avro.load(
-       f"{Path(__file__).parents[0]}/schemas/turnstile_value.json"
-    )
+    key_schema = load_schema("turnstile_key.json")
+    value_schema = load_schema("turnstile_value.json")
 
     # One shared topic for every turnstile; ksqlDB aggregates it per station
     topic_name = "chicago.transport.turnstile"

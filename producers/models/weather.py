@@ -3,21 +3,14 @@ from enum import IntEnum
 import json
 import logging
 import os
-from pathlib import Path
 import random
 
 import requests
 
-from models.producer import Producer
+from models.producer import Producer, load_schema
 
 
 logger = logging.getLogger(__name__)
-
-
-def _load_schema(file_name):
-    """Reads an Avro schema as plain JSON, as REST Proxy expects it inline"""
-    with open(f"{Path(__file__).parents[0]}/schemas/{file_name}") as f:
-        return json.load(f)
 
 
 class Weather(Producer):
@@ -30,8 +23,8 @@ class Weather(Producer):
     rest_proxy_url = os.getenv("REST_PROXY_URL", "http://localhost:8082")
 
     # Loaded at import time: the base class needs them before __init__ runs
-    key_schema = _load_schema("weather_key.json")
-    value_schema = _load_schema("weather_value.json")
+    key_schema = load_schema("weather_key.json")
+    value_schema = load_schema("weather_value.json")
 
     topic_name = "chicago.transport.weather"
 
@@ -78,8 +71,8 @@ class Weather(Producer):
            timeout=30,
            data=json.dumps(
                {
-                   "key_schema": json.dumps(Weather.key_schema),
-                   "value_schema": json.dumps(Weather.value_schema),
+                   "key_schema": Weather.key_schema,
+                   "value_schema": Weather.value_schema,
                    "records": [
                        {
                            "key": {"timestamp": self.time_millis()},

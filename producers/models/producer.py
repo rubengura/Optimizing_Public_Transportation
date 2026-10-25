@@ -2,10 +2,14 @@
 import logging
 import os
 import time
+from pathlib import Path
 
 
+from confluent_kafka import Producer as KafkaProducer
 from confluent_kafka.admin import AdminClient, NewTopic
-from confluent_kafka.avro import AvroProducer
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroSerializer
+from confluent_kafka.serialization import MessageField, SerializationContext
 
 logger = logging.getLogger(__name__)
 
@@ -13,12 +17,22 @@ logger = logging.getLogger(__name__)
 BROKER_URL = os.getenv("BROKER_URL", "PLAINTEXT://localhost:9092")
 SCHEMA_REGISTRY_URL = os.getenv("SCHEMA_REGISTRY_URL", "http://localhost:8081")
 
+SCHEMA_DIR = Path(__file__).parents[0] / "schemas"
+
+
+def load_schema(file_name):
+    """Reads an Avro schema as text, which is what AvroSerializer takes"""
+    return (SCHEMA_DIR / file_name).read_text()
+
 
 class Producer:
     """Defines and provides common functionality amongst Producers"""
 
     # Tracks existing topics across all Producer instances
     existing_topics = set([])
+
+    # One client and one connection are enough for every producer instance
+    _schema_registry = None
 
     def __init__(
         self,
@@ -37,7 +51,6 @@ class Producer:
 
         self.broker_properties = {
             "bootstrap.servers": BROKER_URL,
-            "schema.registry.url": SCHEMA_REGISTRY_URL,
         }
 
         # If the topic does not already exist, try to create it
@@ -45,12 +58,20 @@ class Producer:
             self.create_topic()
             Producer.existing_topics.add(self.topic_name)
 
-        #  AvroProducer configuration
-        self.producer = AvroProducer(
-            self.broker_properties,
-            default_key_schema=key_schema,
-            default_value_schema=value_schema
+        self.producer = KafkaProducer(self.broker_properties)
+
+        registry = Producer.schema_registry()
+        self.key_serializer = AvroSerializer(registry, key_schema)
+        self.value_serializer = (
+            AvroSerializer(registry, value_schema) if value_schema else None
         )
+
+    @classmethod
+    def schema_registry(cls):
+        """Returns the shared Schema Registry client, creating it on first use"""
+        if cls._schema_registry is None:
+            cls._schema_registry = SchemaRegistryClient({"url": SCHEMA_REGISTRY_URL})
+        return cls._schema_registry
 
     def create_topic(self):
         """Creates the producer topic if it does not already exist"""
@@ -99,8 +120,12 @@ class Producer:
         """Emits an Avro event on this producer's topic"""
         self.producer.produce(
             topic=self.topic_name,
-            key=key,
-            value=value,
+            key=self.key_serializer(
+                key, SerializationContext(self.topic_name, MessageField.KEY)
+            ),
+            value=self.value_serializer(
+                value, SerializationContext(self.topic_name, MessageField.VALUE)
+            ),
             on_delivery=Producer._on_delivery,
         )
         # Serves the delivery callbacks queued so far without blocking

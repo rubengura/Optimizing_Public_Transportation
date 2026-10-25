@@ -5,7 +5,9 @@ import re
 
 import confluent_kafka
 from confluent_kafka import Consumer
-from confluent_kafka.avro import AvroConsumer
+from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AvroDeserializer
+from confluent_kafka.serialization import MessageField, SerializationContext
 from tornado import gen
 
 
@@ -14,6 +16,37 @@ logger = logging.getLogger(__name__)
 
 BROKER_URL = os.getenv("BROKER_URL", "PLAINTEXT://localhost:9092")
 SCHEMA_REGISTRY_URL = os.getenv("SCHEMA_REGISTRY_URL", "http://localhost:8081")
+
+_schema_registry = None
+
+
+def schema_registry():
+    """Returns the shared Schema Registry client, creating it on first use"""
+    global _schema_registry
+    if _schema_registry is None:
+        _schema_registry = SchemaRegistryClient({"url": SCHEMA_REGISTRY_URL})
+    return _schema_registry
+
+
+class DecodedMessage:
+    """A consumed message whose value has already been deserialized.
+
+    The view models only read `topic()` and `value()`, so wrapping the message
+    keeps Avro decoding inside the consumer rather than spreading it across
+    every model. Everything else is delegated to the original message.
+    """
+
+    __slots__ = ("_message", "_value")
+
+    def __init__(self, message, value):
+        self._message = message
+        self._value = value
+
+    def value(self):
+        return self._value
+
+    def __getattr__(self, name):
+        return getattr(self._message, name)
 
 
 class KafkaConsumer:
@@ -52,12 +85,10 @@ class KafkaConsumer:
             "auto.offset.reset": "earliest" if offset_earliest else "latest",
         }
 
-        if is_avro is True:
-            self.broker_properties["schema.registry.url"] = SCHEMA_REGISTRY_URL
-            self.consumer = AvroConsumer(self.broker_properties)
-        else:
-            self.consumer = Consumer(self.broker_properties)
+        # Avro topics are decoded in _consume; JSON ones reach the handler raw
+        self.deserializer = AvroDeserializer(schema_registry()) if is_avro else None
 
+        self.consumer = Consumer(self.broker_properties)
         self.consumer.subscribe([self.topic_name_pattern], on_assign=self.on_assign)
 
     def on_assign(self, consumer, partitions):
@@ -93,6 +124,19 @@ class KafkaConsumer:
                 "consumer error on %s: %s", self.topic_name_pattern, message.error()
             )
             return 0
+
+        if self.deserializer is not None:
+            try:
+                value = self.deserializer(
+                    message.value(),
+                    SerializationContext(message.topic(), MessageField.VALUE),
+                )
+            except Exception as e:
+                logger.error(
+                    "unable to decode message on %s: %s", message.topic(), e
+                )
+                return 0
+            message = DecodedMessage(message, value)
 
         self.message_handler(message)
         return 1
