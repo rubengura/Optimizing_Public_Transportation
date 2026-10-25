@@ -5,7 +5,6 @@ import time
 from pathlib import Path
 
 import tornado.ioloop
-import tornado.template
 import tornado.web
 
 
@@ -26,13 +25,10 @@ WEB_SERVER_PORT = 8888
 class MainHandler(tornado.web.RequestHandler):
     """Serves the dashboard shell; the data arrives from StatusHandler"""
 
-    template_dir = tornado.template.Loader(f"{Path(__file__).parents[0]}/templates")
-    template = template_dir.load("status.html")
-
     def get(self):
         """Responds to get requests"""
         logging.debug("rendering and writing handler template")
-        self.write(MainHandler.template.generate())
+        self.render("status.html")
 
 
 class StatusHandler(tornado.web.RequestHandler):
@@ -102,6 +98,7 @@ def run_server():
             (r"/", MainHandler),
             (r"/api/status", StatusHandler, {"weather": weather_model, "lines": lines}),
         ],
+        template_path=f"{Path(__file__).parents[0]}/templates",
         static_path=f"{Path(__file__).parents[0]}/static",
     )
     application.listen(WEB_SERVER_PORT)
