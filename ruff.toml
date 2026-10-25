@@ -1,0 +1,19 @@
+line-length = 100
+
+[lint]
+# E501 is left out on purpose: the simulation code has a few long format
+# strings that read better on one line.
+select = ["E", "F", "W", "UP", "B"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Faust records declare their fields as bare annotations
+"consumers/faust_stream.py" = ["F821"]
+
+# Packages that exist to re-export their submodules
+"**/models/__init__.py" = ["F401"]
+
+# Both entry points configure logging before importing the models, so that
+# the models pick that configuration up.
+"producers/simulation.py" = ["E402"]
+"consumers/server.py" = ["E402"]

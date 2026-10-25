@@ -15,10 +15,12 @@ logging.config.fileConfig(f"{Path(__file__).parents[0]}/logging.ini")
 from consumer import KafkaConsumer
 from models import Lines, Weather
 import topic_check
+import topics
 
 
 logger = logging.getLogger(__name__)
-WEB_SERVER_PORT = 8889
+WEB_SERVER_PORT = 8888
+
 
 class MainHandler(tornado.web.RequestHandler):
     """Defines a web request handler class"""
@@ -41,7 +43,7 @@ class MainHandler(tornado.web.RequestHandler):
 
 def run_server():
     """Runs the Tornado Server and begins Kafka consumption"""
-    if topic_check.topic_exists("TURNSTILE_SUMMARY") is False:
+    if topic_check.topic_exists(topics.TURNSTILE_SUMMARY) is False:
         logger.fatal(
             "Ensure that the KSQL Command has run successfully before running the web server!"
         )
@@ -61,26 +63,27 @@ def run_server():
     )
     application.listen(WEB_SERVER_PORT)
 
-    # Build kafka consumers
+    # Build kafka consumers. These are exact topic names: librdkafka only
+    # treats a subscription as a regular expression when it starts with `^`.
     consumers = [
         KafkaConsumer(
-            "(\w*|\.)*weather(.(\w*|\.))*",
+            topics.WEATHER,
             weather_model.process_message,
             offset_earliest=True,
         ),
         KafkaConsumer(
-            "(\w*|\.)*stations.table(.(\w*|\.))",
+            topics.STATIONS_TABLE,
             lines.process_message,
             offset_earliest=True,
             is_avro=False,
         ),
         KafkaConsumer(
-            "(\w*|\.)*station.arrivals.(.(\w*|\.))*",
+            topics.ARRIVALS,
             lines.process_message,
             offset_earliest=True,
         ),
         KafkaConsumer(
-            "TURNSTILE_SUMMARY",
+            topics.TURNSTILE_SUMMARY,
             lines.process_message,
             offset_earliest=True,
             is_avro=False,
@@ -95,7 +98,7 @@ def run_server():
             tornado.ioloop.IOLoop.current().spawn_callback(consumer.consume)
 
         tornado.ioloop.IOLoop.current().start()
-    except KeyboardInterrupt as e:
+    except KeyboardInterrupt:
         logger.info("shutting down server")
         tornado.ioloop.IOLoop.current().stop()
         for consumer in consumers:

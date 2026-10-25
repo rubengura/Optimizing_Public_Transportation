@@ -5,8 +5,6 @@ import random
 
 import pandas as pd
 
-from models.producer import Producer
-
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +51,9 @@ class TurnstileHardware:
 
         num_riders = 0
         dow = timestamp.weekday()
-        if dow >= 0 or dow < 5:
+        if dow < 5:
             num_riders = self.weekday_ridership
-        elif dow == 6:
+        elif dow == 5:
             num_riders = self.saturday_ridership
         else:
             num_riders = self.sunday_ridership

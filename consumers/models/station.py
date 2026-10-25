@@ -1,5 +1,4 @@
 """Contains functionality related to Stations"""
-import json
 import logging
 
 
@@ -40,4 +39,4 @@ class Station:
 
     def process_message(self, json_data):
         """Handles arrival and turnstile messages"""
-        self.num_turnstile_entries = json_data["COUNT"]
+        self.num_turnstile_entries = json_data["TOTAL_ENTRIES"]

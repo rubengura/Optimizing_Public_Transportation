@@ -16,10 +16,13 @@ class Weather:
 
     def process_message(self, message):
         """Handles incoming weather data"""
-#         logger.info("weather process_message is incomplete - skipping")
         try:
-            message_value = json.loads(message.value())
-            self.temperature = message_value["temperature"]
-            self.status = message_value["status"]
+            value = message.value()
+            # AvroConsumer already hands back a decoded dict; a plain Consumer
+            # would hand back the raw bytes.
+            if isinstance(value, (bytes, bytearray, str)):
+                value = json.loads(value)
+            self.temperature = value["temperature"]
+            self.status = value["status"]
         except Exception as e:
             logger.fatal(f"unable to process weather message: {message}, {e}")

@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /producers
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: pip
+    directory: /consumers
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # The stack broke because the pinned Confluent images went unmaintained and
+  # one of them was removed from Docker Hub entirely. Image tags need watching
+  # just as much as Python pins do.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /docker/connect
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
