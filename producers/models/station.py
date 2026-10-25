@@ -1,11 +1,8 @@
 """Methods pertaining to loading and configuring CTA "L" station data."""
 import logging
-from pathlib import Path
-
-from confluent_kafka import avro
 
 from models import Turnstile
-from models.producer import Producer
+from models.producer import Producer, load_schema
 
 
 logger = logging.getLogger(__name__)
@@ -14,8 +11,8 @@ logger = logging.getLogger(__name__)
 class Station(Producer):
     """Defines a single station"""
 
-    key_schema = avro.load(f"{Path(__file__).parents[0]}/schemas/arrival_key.json")
-    value_schema = avro.load(f"{Path(__file__).parents[0]}/schemas/arrival_value.json")
+    key_schema = load_schema("arrival_key.json")
+    value_schema = load_schema("arrival_value.json")
 
     # Every station emits onto the same topic, partitioned by arrival time
     topic_name = "chicago.transport.arrivals"
