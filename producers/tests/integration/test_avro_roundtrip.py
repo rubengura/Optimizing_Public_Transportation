@@ -8,6 +8,7 @@ it would show.
 """
 import json
 import struct
+import time
 import uuid
 
 import pytest
@@ -28,6 +29,27 @@ JACKSON = 40070
 MONROE = 40790
 
 
+def _end_offsets(consumer, topic, timeout=30):
+    """Maps each partition of `topic` to its current high watermark.
+
+    Topic creation is asynchronous, so cluster metadata can lag behind the
+    CreateTopics call that Station.__init__ makes.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        metadata = consumer.list_topics(topic, timeout=10).topics.get(topic)
+        if metadata is not None and metadata.error is None and metadata.partitions:
+            return {
+                partition: consumer.get_watermark_offsets(
+                    TopicPartition(topic, partition), timeout=15
+                )[1]
+                for partition in metadata.partitions
+            }
+        if time.monotonic() > deadline:
+            pytest.fail(f"{topic} never appeared in cluster metadata")
+        time.sleep(0.5)
+
+
 @pytest.fixture
 def produced_arrival(broker_url, schema_registry_url):
     """Emits one arrival through the real producer and returns its raw bytes.
@@ -37,24 +59,28 @@ def produced_arrival(broker_url, schema_registry_url):
     """
     train_id = f"IT{uuid.uuid4().hex[:4].upper()}"
 
+    # Build the producer first. Station.__init__ is what creates the topic,
+    # with its five partitions, and on a fresh cluster there is nothing to
+    # assign before that happens.
+    station = Station(JACKSON, "Jackson", Line.colors.blue)
+
     consumer = Consumer(
         {
             "bootstrap.servers": broker_url,
             "group.id": f"avro-roundtrip-{uuid.uuid4()}",
             "enable.auto.commit": False,
+            # Never paper over a missing topic with a one-partition stand-in
+            "allow.auto.create.topics": False,
         }
     )
-    metadata = consumer.list_topics(ARRIVALS, timeout=15)
-    assignment = []
-    for partition in metadata.topics[ARRIVALS].partitions:
-        _, high = consumer.get_watermark_offsets(
-            TopicPartition(ARRIVALS, partition), timeout=15
-        )
-        assignment.append(TopicPartition(ARRIVALS, partition, high))
-    consumer.assign(assignment)
-
-    station = Station(JACKSON, "Jackson", Line.colors.blue)
     try:
+        assignment = [
+            TopicPartition(ARRIVALS, partition, high)
+            for partition, high in _end_offsets(consumer, ARRIVALS).items()
+        ]
+        assert assignment, f"no partitions to watch on {ARRIVALS}"
+        consumer.assign(assignment)
+
         station.run(Train(train_id, Train.status.in_service), "b", MONROE, "b")
         station.close()
 
