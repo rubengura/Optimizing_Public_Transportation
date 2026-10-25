@@ -471,7 +471,9 @@ footer.site { padding-block: 30px; color: var(--fg-muted); font-size: 0.84rem; }
           </div>
           <div class="why"><b>Why Avro?</b> A turnstile event is three small fields. Sending
             <code>"station_name"</code> as text with every one of them would cost more than the data.
-            Avro moves the field names out of the message and into the registry.</div>
+            Avro moves the field names out of the message and into the registry: what travels is one
+            magic byte, a four-byte schema id, and the packed values. The consumer looks that id up
+            once and caches it.</div>
         </div>
       </div>
 

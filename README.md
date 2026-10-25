@@ -130,6 +130,36 @@ Then open http://localhost:8888. The page refreshes every ten seconds.
 The server refuses to start until `TURNSTILE_SUMMARY` and the Faust stations table exist, so run
 steps 2 and 3 first.
 
+## Tests
+
+`producers` and `consumers` each own a top-level `models` package, so they get one suite each,
+run with the component as the working directory.
+
+```bash
+cd producers && . venv/bin/activate && pip install -r ../requirements-dev.txt
+pytest                 # unit tests: no Docker, no broker, under a second
+```
+
+The unit tests cover the parts that are pure logic — the train simulation, the ridership curve
+behind the turnstiles, and how the view models route each topic.
+
+The integration tests need the compose stack up and are deselected by default:
+
+```bash
+docker compose up -d --wait
+cd producers && pytest -m integration
+```
+
+They produce one arrival through the real producer and assert the bytes that come back: the
+Confluent Avro framing, the subject naming, and that no new schema version was registered. That
+last check is what guarantees messages already in the topics stay readable across a change to the
+serialization code.
+
+A note on the client API: the producers and consumers use `AvroSerializer` and `AvroDeserializer`
+with an explicit `SerializationContext`, not the `AvroProducer`/`AvroConsumer` classes deprecated
+since confluent-kafka 2.0.2, and not `SerializingProducer`, which upstream documents as
+experimental and likely to be removed.
+
 ## Project layout
 
 ```
@@ -138,6 +168,7 @@ steps 2 and 3 first.
 ├── docker/connect/Dockerfile    Connect plus the JDBC connector
 ├── load_stations.sql            Seeds the `stations` table from the CTA CSV
 ├── docs/index.html              Illustrated walkthrough of the pipeline
+├── requirements-dev.txt         Test tooling for both components
 ├── consumers
 │   ├── server.py                Tornado web server (port 8888)
 │   ├── consumer.py              Kafka consumer wrapper used by the server
@@ -146,13 +177,16 @@ steps 2 and 3 first.
 │   ├── topics.py                Canonical topic names, shared by all consumers
 │   ├── topic_check.py           Startup preflight checks
 │   ├── models/                  Line, Station and Weather view models
+│   ├── tests/                   Routing and view-model tests
 │   └── templates/status.html
 └── producers
     ├── simulation.py            Entry point for the whole producer side
     ├── connector.py             Registers the JDBC source connector
     ├── data/                    CTA station and ridership CSVs
+    ├── tests/                   Simulation tests, plus the Avro
+    │                            round-trip under tests/integration/
     └── models/
-        ├── producer.py          Avro producer base class
+        ├── producer.py          Avro producer base class and schema loader
         ├── station.py           Arrival events
         ├── turnstile.py         Turnstile events
         ├── weather.py           Weather events, through REST Proxy
