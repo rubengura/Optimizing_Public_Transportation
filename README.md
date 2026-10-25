@@ -4,7 +4,11 @@ A streaming event pipeline built around Apache Kafka and its ecosystem. Using pu
 [Chicago Transit Authority](https://www.transitchicago.com/data/), it simulates the "L" train network
 and displays the status of every line in real time.
 
-![Final User Interface](images/ui.png)
+![The transit status dashboard, updating live](images/dashboard.gif)
+
+*Trains slide between stops as arrivals come off the topic, turnstile counts climb, and
+the board switches to its dark theme halfway through. Recorded against the running stack;
+the simulation runs at sixty times real time.*
 
 > **New here?** Open [`docs/index.html`](docs/index.html) in a browser for an illustrated walkthrough
 > of how the pipeline works, stage by stage. No Kafka knowledge assumed.
