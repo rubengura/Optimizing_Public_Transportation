@@ -1,10 +1,16 @@
 """Defines trends calculations for stations"""
 import logging
+import os
 
 import faust
 
+import topics
+
 
 logger = logging.getLogger(__name__)
+
+
+FAUST_BROKER_URL = os.getenv("FAUST_BROKER_URL", "kafka://localhost:9092")
 
 
 # Faust will ingest records from Kafka in this format
@@ -29,37 +35,33 @@ class TransformedStation(faust.Record):
     line: str
 
 
-# TODO: Define a Faust Stream that ingests data from the Kafka Connect stations topic and
-#   places it into a new topic with only the necessary information.
-app = faust.App("stations-stream", broker="kafka://localhost:9092", store="memory://")
-# TODO: Define the input Kafka Topic. Hint: What topic did Kafka Connect output to?
-topic = app.topic("chicago.transport.stations", value_type=Station)
-# TODO: Define the output Kafka Topic
-out_topic = app.topic("chicago.transport.stations.table", partitions=1)
-# TODO: Define a Faust Table
+app = faust.App("stations-stream", broker=FAUST_BROKER_URL, store="memory://")
+
+# Raw rows as Kafka Connect dumped them out of the `stations` Postgres table
+in_topic = app.topic(topics.CONNECT_STATIONS, value_type=Station)
+
+# The trimmed-down view the web server consumes
+out_topic = app.topic(topics.STATIONS_TABLE, partitions=1)
+
+# Writing into the table publishes onto its changelog, which is out_topic
 table = app.Table(
-   "chicago.transport.stations.table",
-   default=int,
-   partitions=1,
-   changelog_topic=out_topic,
+    "stations-table",
+    partitions=1,
+    changelog_topic=out_topic,
 )
 
 
-#
-#
-# TODO: Using Faust, transform input `Station` records into `TransformedStation` records. Note that
-# "line" is the color of the station. So if the `Station` record has the field `red` set to true,
-# then you would set the `line` of the `TransformedStation` record to the string `"red"`
-#
-#
-@app.agent(topic)
-async def faust_stream(stations):
+@app.agent(in_topic)
+async def transform_stations(stations):
+    """Keeps only the fields the dashboard needs, with the line as a color"""
     async for station in stations:
-        TransformedStation.station_id = station.station_id
-        TransformedStation.station_name = station.station_name
-        TransformedStation.order = station.order
-        TransformedStation.line = 'red' if station.red else 'blue' if station.blue else 'green'
-        station.forward(out_topic)
+        table[station.station_id] = TransformedStation(
+            station_id=station.station_id,
+            station_name=station.station_name,
+            order=station.order,
+            line="red" if station.red else "blue" if station.blue else "green",
+        )
+
 
 if __name__ == "__main__":
     app.main()

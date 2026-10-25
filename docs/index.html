@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CTA Transit Pipeline</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="How a Kafka event pipeline turns Chicago Transit Authority sensor data into a live train status board.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a transit route diagram read left to right, then a vertical line
+   rail down the page with one station stop per pipeline stage. */
+:root {
+  --bg: #f2f5f8;
+  --surface: #ffffff;
+  --surface-2: #e7ecf1;
+  --fg: #0e151b;
+  --fg-muted: #4e606f;
+  --rule: #cfd9e2;
+  --accent: #00688f;
+  --accent-soft: rgba(0, 161, 222, 0.13);
+  --line-red: #c60c30;
+  --line-blue: #0082b4;
+  --line-green: #00702a;
+  --line-orange: #cc3410;
+
+  --font-display: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body: "Public Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a1016;
+    --surface: #121b24;
+    --surface-2: #1a2531;
+    --fg: #e6eef5;
+    --fg-muted: #90a3b4;
+    --rule: #25323f;
+    --accent: #45bdf0;
+    --accent-soft: rgba(0, 161, 222, 0.18);
+    --line-red: #f0566f;
+    --line-blue: #45bdf0;
+    --line-green: #39c46d;
+    --line-orange: #ff7a4d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a1016;
+  --surface: #121b24;
+  --surface-2: #1a2531;
+  --fg: #e6eef5;
+  --fg-muted: #90a3b4;
+  --rule: #25323f;
+  --accent: #45bdf0;
+  --accent-soft: rgba(0, 161, 222, 0.18);
+  --line-red: #f0566f;
+  --line-blue: #45bdf0;
+  --line-green: #39c46d;
+  --line-orange: #ff7a4d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2.1rem, 6vw, 3.6rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.4rem, 3.4vw, 2rem); font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1.08rem; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--accent); }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.band { padding-block: clamp(40px, 7vw, 76px); }
+.band + .band { border-top: 1px solid var(--rule); }
+
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* ---- route stripe, the CTA line colours ---- */
+.stripe { display: flex; height: 5px; }
+.stripe span { flex: 1; }
+.stripe .r { background: var(--line-red); }
+.stripe .b { background: var(--line-blue); }
+.stripe .g { background: var(--line-green); }
+
+/* ---- header ---- */
+header.site {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--surface);
+}
+.site .inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 12px;
+  flex-wrap: wrap;
+}
+.wordmark { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; }
+.wordmark .l {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5em; height: 1.5em;
+  margin-right: 0.45em;
+  background: var(--fg);
+  color: var(--bg);
+  border-radius: 3px;
+  font-size: 0.8em;
+}
+.site nav { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.86rem; }
+.site nav a { color: var(--fg-muted); text-decoration: none; }
+.site nav a:hover { color: var(--accent); }
+
+/* ---- hero ---- */
+.hero { display: grid; gap: 22px; }
+.hero .lede { font-size: clamp(1.02rem, 2vw, 1.2rem); color: var(--fg-muted); max-width: 62ch; }
+.facts { display: flex; flex-wrap: wrap; gap: 10px; }
+.fact {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--fct, var(--accent));
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 10px 14px;
+  min-width: 0;
+}
+.fact b { font-family: var(--font-display); font-size: 1.3rem; display: block; font-variant-numeric: tabular-nums; }
+.fact span { font-size: 0.78rem; color: var(--fg-muted); }
+
+/* ---- route diagram ---- */
+.diagram { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px; }
+.diagram .scroller { overflow-x: auto; }
+.diagram svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.node-box { fill: var(--surface-2); stroke: var(--rule); stroke-width: 1.5; }
+.node-box.hub { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+.node-t { font-family: var(--font-display); font-size: 15px; font-weight: 600; fill: var(--fg); }
+.node-s { font-family: var(--font-body); font-size: 11.5px; fill: var(--fg-muted); }
+.hub-t { font-family: var(--font-display); font-size: 25px; font-weight: 700; fill: var(--fg); letter-spacing: 0.02em; }
+.track { fill: none; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; opacity: 0.3; }
+.pulse { fill: none; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round;
+         stroke-dasharray: 16 150; animation: flow 3.2s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -166; } }
+.t-blue { stroke: var(--line-blue); }
+.t-green { stroke: var(--line-green); }
+.t-red { stroke: var(--line-red); }
+.t-orange { stroke: var(--line-orange); }
+.t-accent { stroke: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 12px 6px 4px; font-size: 0.8rem; color: var(--fg-muted); }
+.legend i { display: inline-block; width: 22px; height: 4px; border-radius: 2px; margin-right: 7px; vertical-align: middle; }
+
+/* ---- stages along a rail ---- */
+.stages { display: grid; gap: 0; margin-top: 10px; }
+.stage {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 0 20px;
+  position: relative;
+}
+.rail { position: relative; }
+.rail::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 4px;
+  margin-left: -2px;
+  background: var(--rule);
+}
+.stage:first-child .rail::before { top: 34px; }
+.stage:last-child .rail::before { bottom: calc(100% - 34px); }
+.stop {
+  position: absolute;
+  left: 50%; top: 22px;
+  width: 22px; height: 22px;
+  margin-left: -11px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 4px solid var(--stop, var(--accent));
+  z-index: 1;
+}
+.stage-body { padding-block: 14px 26px; min-width: 0; }
+.stage-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-top: 14px; }
+.stage-num { font-family: var(--font-mono); font-size: 0.8rem; color: var(--fg-muted); }
+.stage-body > p { color: var(--fg-muted); margin-top: 8px; max-width: 64ch; }
+.io {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--rule); background: var(--surface);
+  border-radius: 999px; padding: 4px 11px;
+  font-family: var(--font-mono); font-size: 0.76rem;
+  min-width: 0;
+}
+.chip em { font-style: normal; color: var(--fg-muted); font-family: var(--font-body); }
+.chip.out { border-color: var(--accent); background: var(--accent-soft); }
+.why {
+  margin-top: 14px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-left: 3px solid var(--stop, var(--accent));
+  border-radius: 4px; font-size: 0.92rem;
+}
+.why b { font-family: var(--font-display); }
+
+/* ---- walkthrough ---- */
+.walk { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; margin-top: 22px; }
+.walk-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
+.walk-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+.wstep {
+  border: 1px solid var(--rule); background: var(--bg);
+  border-radius: 5px; padding: 11px 13px; min-width: 0;
+  transition: background 0.35s ease, border-color 0.35s ease, transform 0.35s ease;
+}
+.wstep.on { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-3px); }
+.wstep .k { font-family: var(--font-mono); font-size: 0.72rem; color: var(--fg-muted); }
+.wstep .v { font-family: var(--font-display); font-weight: 600; font-size: 0.95rem; margin-top: 3px; }
+.wstep .d { font-size: 0.82rem; color: var(--fg-muted); margin-top: 5px; }
+.payload {
+  margin-top: 16px; background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 5px; padding: 12px 14px; overflow-x: auto;
+}
+.payload pre { margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65; }
+.btn {
+  font-family: var(--font-body); font-size: 0.82rem; font-weight: 600;
+  border: 1px solid var(--rule); background: var(--surface-2); color: var(--fg);
+  border-radius: 999px; padding: 6px 15px; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---- tables and code ---- */
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 540px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-display); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-muted); }
+tr:last-child td { border-bottom: 0; }
+td.mono { font-family: var(--font-mono); font-size: 0.8rem; white-space: nowrap; }
+
+.steps-run { display: grid; gap: 14px; margin-top: 18px; }
+.runcard { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.runcard h3 { margin-bottom: 8px; }
+.runcard p { color: var(--fg-muted); font-size: 0.9rem; }
+.runcard pre {
+  margin: 10px 0 0; background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 4px; padding: 11px 13px; overflow-x: auto;
+  font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.6;
+}
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; }
+
+footer.site { padding-block: 30px; color: var(--fg-muted); font-size: 0.84rem; }
+
+@media (max-width: 560px) {
+  .stage { grid-template-columns: 38px minmax(0, 1fr); gap: 0 14px; }
+  .stop { width: 18px; height: 18px; margin-left: -9px; border-width: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; stroke-dasharray: none; opacity: 0.85; }
+  .wstep { transition: none; }
+  * { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="stripe"><span class="r"></span><span class="b"></span><span class="g"></span></div>
+  <div class="wrap inner">
+    <div class="wordmark"><span class="l">L</span>Transit Pipeline</div>
+    <nav>
+      <a href="#route">The route</a>
+      <a href="#stages">Six stages</a>
+      <a href="#follow">Follow an event</a>
+      <a href="#topics">Topics</a>
+      <a href="#run">Run it</a>
+    </nav>
+  </div>
+</header>
+
+<section class="band">
+  <div class="wrap hero">
+    <p class="eyebrow">Chicago Transit Authority &middot; streaming event pipeline</p>
+    <h1>Where is my train, right now?</h1>
+    <p class="lede">
+      The CTA has a sensor on each side of every "L" platform and a turnstile at every entrance.
+      Each one of them is a tiny event generator. This project wires those events into Apache Kafka
+      and turns the stream into a status board that updates while you watch &mdash; trains moving
+      from station to station, riders accumulating, weather in the corner.
+    </p>
+    <div class="facts">
+      <div class="fact" style="--fct: var(--line-red)"><b>94</b><span>stations simulated</span></div>
+      <div class="fact" style="--fct: var(--line-blue)"><b>3</b><span>lines: Red, Blue, Green</span></div>
+      <div class="fact" style="--fct: var(--line-green)"><b>30</b><span>trains in service</span></div>
+      <div class="fact"><b>6</b><span>pipeline stages</span></div>
+      <div class="fact"><b id="riders">0</b><span>turnstile entries since you opened this page</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="route">
+  <div class="wrap">
+    <p class="eyebrow">The shape of the system</p>
+    <h2>Everything meets at the broker</h2>
+    <p class="lede" style="margin-top:12px">
+      Read it like a transit map. Four kinds of data enter from the left, all of them converge on
+      Kafka, and three of them leave again towards the status board. No producer knows that the
+      dashboard exists, and the dashboard knows nothing about sensors. That is the whole point of
+      putting a broker in the middle.
+    </p>
+
+    <div class="diagram" style="margin-top:22px">
+      <div class="scroller">
+        <svg viewBox="0 0 980 400" role="img" aria-label="Diagram: PostgreSQL through Kafka Connect, train arrivals, turnstiles, and weather through REST Proxy all feed Kafka; Faust and ksqlDB transform the streams; the status server consumes the results.">
+          <!-- tracks -->
+          <g>
+            <path class="track t-blue"   d="M 152 50 H 243"/>
+            <path class="track t-blue"   d="M 317 50 H 395 L 445 100 V 118"/>
+            <path class="track t-green"  d="M 152 160 H 418"/>
+            <path class="track t-red"    d="M 152 250 H 418"/>
+            <path class="track t-orange" d="M 152 350 H 243"/>
+            <path class="track t-orange" d="M 317 350 H 395 L 445 300 V 282"/>
+            <path class="track t-blue"   d="M 562 150 H 598 L 646 102"/>
+            <path class="track t-red"    d="M 562 250 H 598 L 646 298"/>
+            <path class="track t-blue"   d="M 732 90 H 790 L 836 136 V 166"/>
+            <path class="track t-red"    d="M 732 310 H 790 L 836 264 V 234"/>
+            <path class="track t-accent" d="M 562 200 H 833"/>
+
+            <path class="pulse t-blue"   d="M 152 50 H 243"/>
+            <path class="pulse t-blue"   d="M 317 50 H 395 L 445 100 V 118"/>
+            <path class="pulse t-green"  d="M 152 160 H 418"/>
+            <path class="pulse t-red"    d="M 152 250 H 418"/>
+            <path class="pulse t-orange" d="M 152 350 H 243"/>
+            <path class="pulse t-orange" d="M 317 350 H 395 L 445 300 V 282"/>
+            <path class="pulse t-blue"   d="M 562 150 H 598 L 646 102" style="animation-delay:.4s"/>
+            <path class="pulse t-red"    d="M 562 250 H 598 L 646 298" style="animation-delay:.6s"/>
+            <path class="pulse t-blue"   d="M 732 90 H 790 L 836 136 V 166" style="animation-delay:.9s"/>
+            <path class="pulse t-red"    d="M 732 310 H 790 L 836 264 V 234" style="animation-delay:1.1s"/>
+            <path class="pulse t-accent" d="M 562 200 H 833" style="animation-delay:.5s"/>
+          </g>
+
+          <!-- sources -->
+          <g>
+            <rect class="node-box" x="18" y="26" width="134" height="48" rx="5"/>
+            <text class="node-t" x="34" y="48">PostgreSQL</text>
+            <text class="node-s" x="34" y="65">stations table</text>
+
+            <rect class="node-box" x="18" y="136" width="134" height="48" rx="5"/>
+            <text class="node-t" x="34" y="158">Arrivals</text>
+            <text class="node-s" x="34" y="175">platform sensors</text>
+
+            <rect class="node-box" x="18" y="226" width="134" height="48" rx="5"/>
+            <text class="node-t" x="34" y="248">Turnstiles</text>
+            <text class="node-s" x="34" y="265">one event per rider</text>
+
+            <rect class="node-box" x="18" y="326" width="134" height="48" rx="5"/>
+            <text class="node-t" x="34" y="348">Weather</text>
+            <text class="node-s" x="34" y="365">legacy hardware</text>
+          </g>
+
+          <!-- gateways -->
+          <g>
+            <rect class="node-box" x="243" y="26" width="74" height="48" rx="5"/>
+            <text class="node-t" x="255" y="48" style="font-size:12.5px">Kafka</text>
+            <text class="node-t" x="255" y="64" style="font-size:12.5px">Connect</text>
+
+            <rect class="node-box" x="243" y="326" width="74" height="48" rx="5"/>
+            <text class="node-t" x="255" y="348" style="font-size:12.5px">REST</text>
+            <text class="node-t" x="255" y="364" style="font-size:12.5px">Proxy</text>
+          </g>
+
+          <!-- hub -->
+          <g>
+            <rect class="node-box hub" x="418" y="118" width="144" height="164" rx="7"/>
+            <text class="hub-t" x="490" y="196" text-anchor="middle">Kafka</text>
+            <text class="node-s" x="490" y="216" text-anchor="middle">single broker, KRaft</text>
+            <text class="node-s" x="490" y="232" text-anchor="middle">six topics</text>
+          </g>
+
+          <!-- processors -->
+          <g>
+            <rect class="node-box" x="646" y="66" width="86" height="48" rx="5"/>
+            <text class="node-t" x="660" y="88">Faust</text>
+            <text class="node-s" x="660" y="104">reshapes</text>
+
+            <rect class="node-box" x="646" y="286" width="86" height="48" rx="5"/>
+            <text class="node-t" x="660" y="308">ksqlDB</text>
+            <text class="node-s" x="660" y="324">counts</text>
+          </g>
+
+          <!-- sink -->
+          <g>
+            <rect class="node-box hub" x="833" y="166" width="130" height="68" rx="6"/>
+            <text class="node-t" x="898" y="194" text-anchor="middle">Status board</text>
+            <text class="node-s" x="898" y="212" text-anchor="middle">Tornado, port 8888</text>
+          </g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--line-blue)"></i>Station reference data</span>
+        <span><i style="background:var(--line-green)"></i>Train arrivals</span>
+        <span><i style="background:var(--line-red)"></i>Turnstile entries</span>
+        <span><i style="background:var(--line-orange)"></i>Weather readings</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="stages">
+  <div class="wrap">
+    <p class="eyebrow">Stop by stop</p>
+    <h2>Six stages, each feeding the next</h2>
+    <p class="lede" style="margin-top:12px">
+      Every stage writes to a topic that the following stage reads. That is the only contract
+      between them, which is why you can restart any single piece without telling the others.
+    </p>
+
+    <div class="stages">
+
+      <div class="stage" style="--stop: var(--line-green)">
+        <div class="rail"><span class="stop"></span></div>
+        <div class="stage-body">
+          <div class="stage-head"><span class="stage-num">01</span><h3>Arrival producers</h3></div>
+          <p>
+            Each station owns a Kafka producer. When a train pulls in, the station emits one event
+            saying which train, travelling in which direction, and which station it just left. The
+            events are Avro-encoded, so the schema travels to the Schema Registry once and every
+            message afterwards carries only a four-byte schema id instead of its field names.
+          </p>
+          <div class="io">
+            <span class="chip"><em>in</em> Station.arrive_a()</span>
+            <span class="chip out"><em>out</em> chicago.transport.arrivals</span>
+          </div>
+          <div class="why"><b>Why Avro?</b> A turnstile event is three small fields. Sending
+            <code>"station_name"</code> as text with every one of them would cost more than the data.
+            Avro moves the field names out of the message and into the registry.</div>
+        </div>
+      </div>
+
+      <div class="stage" style="--stop: var(--line-red)">
+        <div class="rail"><span class="stop"></span></div>
+        <div class="stage-body">
+          <div class="stage-head"><span class="stage-num">02</span><h3>Turnstile producers</h3></div>
+          <p>
+            Each station also has a turnstile, driven by real CTA ridership figures: Clark/Lake
+            averages 22,811 weekday entries, and an hourly curve spreads them across the day so the
+            morning peak actually looks like a peak. One Kafka event per rider, no aggregation yet.
+          </p>
+          <div class="io">
+            <span class="chip"><em>in</em> ridership_seed.csv</span>
+            <span class="chip out"><em>out</em> chicago.transport.turnstile</span>
+          </div>
+          <div class="why"><b>Why emit raw events?</b> Counting here would freeze one answer into the
+            data. Emitting every entry lets stage 06 count per station, and lets someone later count
+            per hour, or per line, without replaying history.</div>
+        </div>
+      </div>
+
+      <div class="stage" style="--stop: var(--line-orange)">
+        <div class="rail"><span class="stop"></span></div>
+        <div class="stage-body">
+          <div class="stage-head"><span class="stage-num">03</span><h3>Weather, through REST Proxy</h3></div>
+          <p>
+            The weather hardware is old and cannot run a Kafka client library. It speaks HTTP, so it
+            posts to Kafka REST Proxy instead, with the Avro schemas inline in the request body and
+            a <code>Content-Type</code> of <code>application/vnd.kafka.avro.v2+json</code>. The
+            proxy does the producing on its behalf.
+          </p>
+          <div class="io">
+            <span class="chip"><em>in</em> POST /topics/&hellip;</span>
+            <span class="chip out"><em>out</em> chicago.transport.weather</span>
+          </div>
+          <div class="why"><b>Why a proxy?</b> It is the escape hatch for anything that cannot link
+            librdkafka: embedded devices, a shell script, a language with no good client. The cost
+            is an extra hop and no exactly-once semantics.</div>
+        </div>
+      </div>
+
+      <div class="stage" style="--stop: var(--line-blue)">
+        <div class="rail"><span class="stop"></span></div>
+        <div class="stage-body">
+          <div class="stage-head"><span class="stage-num">04</span><h3>Kafka Connect pulls the station table</h3></div>
+          <p>
+            Station names, line colours and platform order live in PostgreSQL, not in the event
+            stream. The JDBC source connector polls the <code>stations</code> table once a minute in
+            <code>incrementing</code> mode, tracking <code>stop_id</code>, and republishes each row
+            as a Kafka message. No code to write &mdash; the connector is pure configuration.
+          </p>
+          <div class="io">
+            <span class="chip"><em>in</em> jdbc:postgresql://postgres:5432/cta</span>
+            <span class="chip out"><em>out</em> chicago.transport.stations</span>
+          </div>
+          <div class="why"><b>Why not just query the database?</b> Then the dashboard would depend on
+            PostgreSQL being up, and so would anything else that needed station names. Copying the
+            table into Kafka once lets every consumer keep its own local view.</div>
+        </div>
+      </div>
+
+      <div class="stage" style="--stop: var(--line-blue)">
+        <div class="rail"><span class="stop"></span></div>
+        <div class="stage-body">
+          <div class="stage-head"><span class="stage-num">05</span><h3>Faust reshapes the stations</h3></div>
+          <p>
+            The raw rows carry ten columns, three of which are the booleans <code>red</code>,
+            <code>blue</code> and <code>green</code>. The dashboard wants four fields and a single
+            line colour. A Faust agent consumes the Connect topic, builds the trimmed record, and
+            stores it in a table whose changelog <em>is</em> the output topic.
+          </p>
+          <div class="io">
+            <span class="chip"><em>in</em> chicago.transport.stations</span>
+            <span class="chip out"><em>out</em> chicago.transport.stations.table</span>
+          </div>
+          <div class="why"><b>Why a table and not a stream?</b> There is one current answer per
+            station, not a history of them. A changelog-backed table keeps the latest row per key and
+            replays it to any consumer that starts from the beginning.</div>
+        </div>
+      </div>
+
+      <div class="stage" style="--stop: var(--line-red)">
+        <div class="rail"><span class="stop"></span></div>
+        <div class="stage-body">
+          <div class="stage-head"><span class="stage-num">06</span><h3>ksqlDB counts the turnstiles</h3></div>
+          <p>
+            Two SQL statements, no application code. The first declares the turnstile topic as a
+            stream; the second aggregates it into a table grouped by station. ksqlDB keeps the count
+            up to date as events arrive and writes each change back to a Kafka topic.
+          </p>
+          <div class="io">
+            <span class="chip"><em>in</em> chicago.transport.turnstile</span>
+            <span class="chip out"><em>out</em> TURNSTILE_SUMMARY</span>
+          </div>
+          <div class="why"><b>Why SQL here?</b> The transformation is a GROUP BY. Writing a consumer,
+            a state store and a producer to express a GROUP BY is a lot of code to maintain for
+            something a query engine already does.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="grid2" style="margin-top:26px">
+      <div class="runcard">
+        <h3>And then the dashboard</h3>
+        <p>
+          A Tornado web server runs four Kafka consumers on its event loop, one per topic, and keeps
+          an in-memory model of the three lines. The HTML page is rendered from that model and
+          refreshes every ten seconds. Nothing is stored; restart it and it rebuilds the whole board
+          by replaying the topics from the beginning.
+        </p>
+      </div>
+      <div class="runcard">
+        <h3>What runs where</h3>
+        <p>
+          Kafka, Schema Registry, REST Proxy, Connect, ksqlDB and PostgreSQL run in Docker and talk
+          to each other by service name. The Python processes run on your machine and reach the same
+          cluster through <code>localhost</code>. Mixing those two up is the classic first bug: a
+          connector configured with <code>localhost</code> points at the Connect container itself.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="follow">
+  <div class="wrap">
+    <p class="eyebrow">One event, end to end</p>
+    <h2>Follow a single arrival</h2>
+    <p class="lede" style="margin-top:12px">
+      Train BL008 pulls into Jackson heading east. Here is everything that happens before you see it
+      on the board.
+    </p>
+
+    <div class="walk">
+      <div class="walk-head">
+        <div><span class="eyebrow">Journey of one message</span></div>
+        <button class="btn" id="walkToggle" type="button">Pause</button>
+      </div>
+      <div class="walk-steps" id="walkSteps">
+        <div class="wstep on">
+          <div class="k">t + 0 ms</div>
+          <div class="v">Sensor fires</div>
+          <div class="d">Station.run() builds a dict with the train id, direction and previous stop.</div>
+        </div>
+        <div class="wstep">
+          <div class="k">t + 1 ms</div>
+          <div class="v">Avro encoding</div>
+          <div class="d">The schema is registered once; the message carries its id plus packed fields.</div>
+        </div>
+        <div class="wstep">
+          <div class="k">t + 2 ms</div>
+          <div class="v">Into the log</div>
+          <div class="d">Appended to a partition of <span class="mono">arrivals</span>, keyed by timestamp.</div>
+        </div>
+        <div class="wstep">
+          <div class="k">t + 5 ms</div>
+          <div class="v">Consumer polls</div>
+          <div class="d">The web server's arrivals consumer picks it up and decodes it.</div>
+        </div>
+        <div class="wstep">
+          <div class="k">t + 6 ms</div>
+          <div class="v">Model updates</div>
+          <div class="d">Jackson gains a train in direction B; the previous station loses one.</div>
+        </div>
+        <div class="wstep">
+          <div class="k">&le; 10 s</div>
+          <div class="v">On the board</div>
+          <div class="d">The next page refresh renders BL008 in the Jackson row.</div>
+        </div>
+      </div>
+
+      <div class="payload">
+<pre>{
+  "station_id":      40070,          <span style="opacity:.6">// Jackson</span>
+  "train_id":        "BL008",
+  "direction":       "b",
+  "line":            "blue",
+  "train_status":    "in_service",
+  "prev_station_id": 40790,          <span style="opacity:.6">// Monroe</span>
+  "prev_direction":  "b"
+}</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="topics">
+  <div class="wrap">
+    <p class="eyebrow">Reference</p>
+    <h2>The six topics</h2>
+    <div class="tablewrap" style="margin-top:18px">
+      <table>
+        <thead>
+          <tr><th>Topic</th><th>Format</th><th>Written by</th><th>Read by</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">chicago.transport.arrivals</td><td>Avro</td><td>Station producers</td><td>Status board</td></tr>
+          <tr><td class="mono">chicago.transport.turnstile</td><td>Avro</td><td>Turnstile producers</td><td>ksqlDB</td></tr>
+          <tr><td class="mono">chicago.transport.weather</td><td>Avro</td><td>REST Proxy</td><td>Status board</td></tr>
+          <tr><td class="mono">chicago.transport.stations</td><td>JSON</td><td>Kafka Connect</td><td>Faust</td></tr>
+          <tr><td class="mono">chicago.transport.stations.table</td><td>JSON</td><td>Faust</td><td>Status board</td></tr>
+          <tr><td class="mono">TURNSTILE_SUMMARY</td><td>JSON</td><td>ksqlDB</td><td>Status board</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 style="margin-top:34px">Where each service listens</h2>
+    <div class="tablewrap" style="margin-top:18px">
+      <table>
+        <thead>
+          <tr><th>Service</th><th>From your machine</th><th>From inside Docker</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Status board</td><td class="mono">localhost:8888</td><td>&mdash;</td></tr>
+          <tr><td>Kafka UI</td><td class="mono">localhost:8085</td><td>&mdash;</td></tr>
+          <tr><td>Kafka broker</td><td class="mono">localhost:9092</td><td class="mono">kafka:19092</td></tr>
+          <tr><td>Schema Registry</td><td class="mono">localhost:8081</td><td class="mono">schema-registry:8081</td></tr>
+          <tr><td>REST Proxy</td><td class="mono">localhost:8082</td><td class="mono">rest-proxy:8082</td></tr>
+          <tr><td>Kafka Connect</td><td class="mono">localhost:8083</td><td class="mono">connect:8083</td></tr>
+          <tr><td>ksqlDB</td><td class="mono">localhost:8088</td><td class="mono">ksqldb:8088</td></tr>
+          <tr><td>PostgreSQL</td><td class="mono">localhost:5432</td><td class="mono">postgres:5432</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="run">
+  <div class="wrap">
+    <p class="eyebrow">Getting it running</p>
+    <h2>Four terminals</h2>
+    <div class="steps-run">
+      <div class="runcard">
+        <h3>First, the infrastructure</h3>
+        <p>Builds the Connect image with the JDBC connector, then starts seven containers. Wait until every service reports <code>(healthy)</code>.</p>
+        <pre>docker compose up -d --build
+docker compose ps</pre>
+      </div>
+      <div class="grid2">
+        <div class="runcard">
+          <h3>1 &middot; Producers</h3>
+          <p>Registers the connector, then starts the simulation.</p>
+          <pre>cd producers
+python3.13 -m venv venv &amp;&amp; . venv/bin/activate
+pip install -r requirements.txt
+python simulation.py</pre>
+        </div>
+        <div class="runcard">
+          <h3>2 &middot; Faust</h3>
+          <p>Reshapes the station rows into the table the board reads.</p>
+          <pre>cd consumers
+python3.13 -m venv venv &amp;&amp; . venv/bin/activate
+pip install -r requirements.txt
+faust -A faust_stream worker -l info</pre>
+        </div>
+        <div class="runcard">
+          <h3>3 &middot; ksqlDB</h3>
+          <p>Creates the turnstile summary table. Runs once and exits.</p>
+          <pre>cd consumers &amp;&amp; . venv/bin/activate
+python ksql.py</pre>
+        </div>
+        <div class="runcard">
+          <h3>4 &middot; Status board</h3>
+          <p>Then open <code>localhost:8888</code>.</p>
+          <pre>cd consumers &amp;&amp; . venv/bin/activate
+python server.py</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="stripe"><span class="r"></span><span class="b"></span><span class="g"></span></div>
+  <div class="wrap" style="padding-top:20px">
+    Station and ridership data derived from the
+    <a href="https://www.transitchicago.com/data/">City of Chicago Transit Authority open datasets</a>.
+    The simulation is synthetic; no live CTA feed is used.
+  </div>
+</footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Turnstile counter: the real ridership curve peaks around 08:00 and 17:00,
+  // so the rate here is a plausible mid-day trickle rather than a constant.
+  var ridersEl = document.getElementById("riders");
+  if (ridersEl && !reduce) {
+    var riders = 0;
+    setInterval(function () {
+      riders += 1 + Math.floor(Math.random() * 4);
+      ridersEl.textContent = riders.toLocaleString();
+    }, 900);
+  }
+
+  // Walkthrough stepper
+  var steps = Array.prototype.slice.call(document.querySelectorAll("#walkSteps .wstep"));
+  var toggle = document.getElementById("walkToggle");
+  var i = 0;
+  var timer = null;
+
+  function show(n) {
+    steps.forEach(function (s, idx) { s.classList.toggle("on", idx === n); });
+  }
+  function start() {
+    timer = setInterval(function () {
+      i = (i + 1) % steps.length;
+      show(i);
+    }, 1800);
+    if (toggle) { toggle.textContent = "Pause"; }
+  }
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    if (toggle) { toggle.textContent = "Play"; }
+  }
+  if (toggle) {
+    toggle.addEventListener("click", function () { timer ? stop() : start(); });
+  }
+  if (reduce) { stop(); } else if (steps.length) { start(); }
+})();
+</script>
+
+</body>
+</html>

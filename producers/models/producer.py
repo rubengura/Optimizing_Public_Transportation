@@ -1,13 +1,17 @@
 """Producer base-class providing common utilites and functionality"""
 import logging
+import os
 import time
 
 
-from confluent_kafka import avro
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka.avro import AvroProducer
 
 logger = logging.getLogger(__name__)
+
+
+BROKER_URL = os.getenv("BROKER_URL", "PLAINTEXT://localhost:9092")
+SCHEMA_REGISTRY_URL = os.getenv("SCHEMA_REGISTRY_URL", "http://localhost:8081")
 
 
 class Producer:
@@ -31,12 +35,9 @@ class Producer:
         self.num_partitions = num_partitions
         self.num_replicas = num_replicas
 
-        # Broke properties configuration:
-        # Kafka Host URLs: PLAINTEXT://localhost:9092,PLAINTEXT://localhost:9093,PLAINTEXT://localhost:9094
-        # Schema registry Host URL: http://localhost:8081
         self.broker_properties = {
-            "bootstrap.servers": "PLAINTEXT://localhost:9092",
-            "schema.registry.url": "http://localhost:8081"
+            "bootstrap.servers": BROKER_URL,
+            "schema.registry.url": SCHEMA_REGISTRY_URL,
         }
 
         # If the topic does not already exist, try to create it
@@ -59,15 +60,17 @@ class Producer:
             {"bootstrap.servers": self.broker_properties["bootstrap.servers"]}
         )
 
-        topic_metadata = client.list_topics(timeout = 5)
+        topic_metadata = client.list_topics(timeout=5)
 
         # Check if topic exists in client.list_topics
         if self.topic_name in topic_metadata.topics:
             logger.info(f"topic {self.topic_name} already exists")
             return
         else:
-            logger.info(f"""creating topic {self.topic_name} with {self.num_partitions} 
-                        partitions and {self.num_replicas} replicas""")
+            logger.info(
+                f"creating topic {self.topic_name} with {self.num_partitions} "
+                f"partitions and {self.num_replicas} replicas"
+            )
 
         # If not exists, create topic
         futures = client.create_topics(
@@ -79,16 +82,29 @@ class Producer:
         ])
 
 
-        for topic, future in futures.items():
+        for _topic, future in futures.items():
             try:
                 future.result()
                 logger.info(f"{self.topic_name} topic creation complete")
             except Exception as e:
                 logger.fatal(f"unable to create topic {self.topic_name}, {e}")
 
+    @staticmethod
+    def _on_delivery(err, msg):
+        """Reports delivery failures, which are otherwise silent"""
+        if err is not None:
+            logger.error(f"failed to deliver message to {msg.topic()}: {err}")
 
-    def time_millis(self):
-        return int(round(time.time() * 1000))
+    def produce(self, key, value):
+        """Emits an Avro event on this producer's topic"""
+        self.producer.produce(
+            topic=self.topic_name,
+            key=key,
+            value=value,
+            on_delivery=Producer._on_delivery,
+        )
+        # Serves the delivery callbacks queued so far without blocking
+        self.producer.poll(0)
 
     def close(self):
         """Prepares the producer for exit by cleaning up the producer"""

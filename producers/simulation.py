@@ -56,7 +56,7 @@ class TimeSimulation:
         ]
 
     def run(self):
-        curr_time = datetime.datetime.utcnow().replace(
+        curr_time = datetime.datetime.now(datetime.UTC).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         logger.info("Beginning simulation, press Ctrl+C to exit at any time")
@@ -74,9 +74,10 @@ class TimeSimulation:
                 _ = [line.run(curr_time, self.time_step) for line in self.train_lines]
                 curr_time = curr_time + self.time_step
                 time.sleep(self.sleep_seconds)
-        except KeyboardInterrupt as e:
+        except KeyboardInterrupt:
             logger.info("Shutting down")
             _ = [line.close() for line in self.train_lines]
+            weather.close()
 
 
 if __name__ == "__main__":
