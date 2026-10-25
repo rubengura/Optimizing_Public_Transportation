@@ -15,7 +15,7 @@ name: cta-transit
 
 services:
   kafka:
-    image: confluentinc/cp-kafka:8.2.4
+    image: confluentinc/cp-kafka:8.3.2
     hostname: kafka
     ports:
     - "9092:9092"
@@ -48,7 +48,7 @@ services:
       start_period: 20s
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:8.2.4
+    image: confluentinc/cp-schema-registry:8.3.2
     hostname: schema-registry
     ports:
     - "8081:8081"
@@ -62,14 +62,18 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8081/subjects"]
+      # Confluent Platform 8.3 images ship neither curl nor wget, but they do
+      # carry python3. urlopen raises on any non-2xx, so this is a real HTTP
+      # check rather than a bare port probe.
+      test: ["CMD", "python3", "-c",
+              "import urllib.request; urllib.request.urlopen('http://localhost:8081/subjects', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 20s
 
   rest-proxy:
-    image: confluentinc/cp-kafka-rest:8.2.4
+    image: confluentinc/cp-kafka-rest:8.3.2
     hostname: rest-proxy
     ports:
     - "8082:8082"
@@ -85,7 +89,8 @@ services:
       schema-registry:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8082/topics"]
+      test: ["CMD", "python3", "-c",
+              "import urllib.request; urllib.request.urlopen('http://localhost:8082/topics', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -93,7 +98,7 @@ services:
 
   connect:
     build: ./docker/connect
-    image: cta-transit/kafka-connect:8.2.4
+    image: cta-transit/kafka-connect:8.3.2
     hostname: connect
     ports:
     - "8083:8083"
@@ -121,14 +126,15 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8083/connectors"]
+      test: ["CMD", "python3", "-c",
+              "import urllib.request; urllib.request.urlopen('http://localhost:8083/connectors', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 40s
 
   ksqldb:
-    image: confluentinc/cp-ksqldb-server:8.2.4
+    image: confluentinc/cp-ksqldb-server:8.3.2
     hostname: ksqldb
     ports:
     - "8088:8088"
@@ -149,7 +155,8 @@ services:
       schema-registry:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8088/info"]
+      test: ["CMD", "python3", "-c",
+              "import urllib.request; urllib.request.urlopen('http://localhost:8088/info', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 30
