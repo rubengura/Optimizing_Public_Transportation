@@ -78,3 +78,18 @@ class Line:
             logger.debug(
                 "unable to find handler for message from topic %s", topic
             )
+
+    def to_dict(self):
+        """Serializes the line and its stations for the status API"""
+        stations = sorted(self.stations.values(), key=lambda station: station.order)
+        return {
+            "color": self.color,
+            "trains": sum(
+                1
+                for station in stations
+                for arrival in (station.dir_a, station.dir_b)
+                if arrival is not None
+            ),
+            "entries": sum(station.num_turnstile_entries for station in stations),
+            "stations": [station.to_dict() for station in stations],
+        }

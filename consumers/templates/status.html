@@ -1,48 +1,79 @@
-<html>
-  <head>
-    <title>CTA Status</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
-    <meta http-equiv="refresh" content="10">
-  </head>
-  <body>
-    <div class="container-fluid">
-      <div class="row" style="padding: 2em">
-        <div class="col-10">
-          <b>Welcome to the CTA Status Page!</b>
-        </div>
-        <div>
-          {{ int(weather.temperature) }}° | {{ weather.status.title().replace("_", " ") }}
-        </div>
-      </div>
-      <div class="row" style="margin: 0px 20px 0px 20px">
-        <table class="table">
-          <thead>
-            <tr>
-              <th scope="col">Line</th>
-              <th scope="col">Station</th>
-              <th scope="col">Train Direction A</th>
-              <th scope="col">Train Direction B</th>
-              <th scope="col">Total Turnstile Entries</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for color, line in (("blue", lines.blue_line), ("green", lines.green_line), ("red", lines.red_line)) %}
-            {% for station in sorted(line.stations.values(), key=lambda x: x.order) %}
-            <tr>
-              <td style="background-color: {{ line.color_code }}">    </td>
-              <td>{{ station.station_name }}</td>
-              <td>{{ station.dir_a["train_id"] if station.dir_a is not None else "---" }}</td>
-              <td>{{ station.dir_b["train_id"] if station.dir_b is not None else "---" }}</td>
-              <td>{{ station.num_turnstile_entries }}</td>
-            </tr>
-            {% end %}
-            {% end %}
-          </tbody>
-        </table>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CTA Transit Status</title>
+<meta name="description" content="Live status of the Chicago 'L' network, streamed through Apache Kafka.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/dashboard.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<header class="site">
+  <div class="stripe"><span class="r"></span><span class="b"></span><span class="g"></span></div>
+  <div class="wrap inner">
+    <div class="wordmark"><span class="l">L</span>Transit Status</div>
+    <div class="head-tools">
+      <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch colour theme">
+        <span aria-hidden="true" id="themeGlyph">◑</span><span id="themeLabel">Auto</span>
+      </button>
+      <div class="live" id="live" data-state="loading">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="liveText">Connecting&hellip;</span>
       </div>
     </div>
-    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
-  </body>
+  </div>
+</header>
+
+<main class="band">
+  <div class="wrap">
+
+    <p class="eyebrow">Chicago Transit Authority &middot; live network status</p>
+
+    <div class="facts" id="kpis" role="group" aria-label="Network totals">
+      <div class="fact" data-kpi="entries" style="--fct: var(--accent)">
+        <b id="kpiEntries">&mdash;</b><span>turnstile entries</span>
+      </div>
+      <div class="fact" data-kpi="trains" style="--fct: var(--line-blue)">
+        <b id="kpiTrains">&mdash;</b><span>trains on the network</span>
+      </div>
+      <div class="fact" data-kpi="stations" style="--fct: var(--line-green)">
+        <b id="kpiStations">&mdash;</b><span>stations reporting</span>
+      </div>
+      <div class="fact" data-kpi="faults" style="--fct: var(--alert)">
+        <b id="kpiFaults">&mdash;</b><span><span class="gl" aria-hidden="true">&#9888;</span> trains broken down</span>
+      </div>
+      <div class="fact" data-kpi="weather" style="--fct: var(--line-orange)">
+        <b id="kpiWeather">&mdash;</b><span id="kpiWeatherLabel">weather</span>
+      </div>
+    </div>
+
+    <div class="notice" id="notice" hidden></div>
+
+    <div class="board" id="board" aria-live="polite"></div>
+
+    <p class="legend-note">
+      Direction <b>A</b> runs down the left of each rail, direction <b>B</b> down the right.
+      A dashed train with a <span class="gl" aria-hidden="true">&#9888;</span> marker is broken down.
+      Bars compare turnstile entries against the busiest station on the network.
+    </p>
+
+  </div>
+</main>
+
+<footer class="site">
+  <div class="stripe"><span class="r"></span><span class="b"></span><span class="g"></span></div>
+  <div class="wrap foot">
+    Simulated from the
+    <a href="https://www.transitchicago.com/data/">City of Chicago Transit Authority open datasets</a>.
+    No live CTA feed is used. &middot; <a href="/api/status">/api/status</a>
+  </div>
+</footer>
+
+<script src="/static/dashboard.js"></script>
+</body>
 </html>
