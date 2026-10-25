@@ -19,6 +19,25 @@ jobs:
       - run: pipx install ruff==0.17.2
       - run: ruff check producers consumers
 
+  # producers and consumers each own a top-level `models` package, so they get
+  # one test suite each rather than a shared one.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [producers, consumers]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install ${{ matrix.component }}
+        run: pip install -r ${{ matrix.component }}/requirements.txt -r requirements-dev.txt
+      - name: Test ${{ matrix.component }}
+        working-directory: ${{ matrix.component }}
+        run: pytest -q
+
   audit:
     runs-on: ubuntu-latest
     strategy:
