@@ -69,7 +69,8 @@
 
     var key = document.createElement("div");
     key.className = "dir-key";
-    key.innerHTML = "<span>▲ dir A</span><span>dir B ▼</span>";
+    key.innerHTML =
+      '<span class="k-a">▲ A</span><span class="k-b">B ▼</span>';
     col.appendChild(key);
 
     var rail = document.createElement("div");
@@ -120,10 +121,12 @@
       var row = document.createElement("div");
       row.className = "stop-row";
       row.innerHTML =
-        '<span class="stop-dot" aria-hidden="true"></span>' +
         '<span class="stop-name"></span>' +
+        '<span class="stop-dot" aria-hidden="true"></span>' +
+        '<span class="stop-metric">' +
         '<span class="meter"><i></i></span>' +
-        '<span class="stop-val"></span>';
+        '<span class="stop-val"></span>' +
+        "</span>";
       row.querySelector(".stop-name").textContent = station.name;
       rec.stops.appendChild(row);
       rec.rows.set(station.id, {

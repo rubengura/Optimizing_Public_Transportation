@@ -32,7 +32,8 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --stop-pitch: 42px;
-  --lane: 56px;
+  --stop-gap: 9px;
+  --lane: 54px;
 
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -92,7 +93,7 @@ body {
 a { color: var(--accent); }
 
 .wrap {
-  max-width: 1320px;
+  max-width: 1500px;
   margin: 0 auto;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -219,7 +220,7 @@ body::before {
 /* ---- the board ---- */
 .board {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 14px;
   align-items: start;
 }
@@ -271,65 +272,94 @@ body::before {
   margin-top: 4px;
 }
 .dir-key {
-  display: flex; justify-content: space-between;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr) var(--lane) 15px var(--lane) minmax(0, 1fr);
+  gap: var(--stop-gap);
   font-family: var(--font-mono); font-size: 0.68rem;
   color: var(--fg-muted);
   padding: 7px 14px 0;
   letter-spacing: 0.04em;
+  text-align: center;
 }
+.dir-key .k-a { grid-column: 2; }
+.dir-key .k-b { grid-column: 4; }
 
 /* ---- rail ---- */
 .rail {
   position: relative;
-  padding: 6px var(--lane) 12px;
+  padding: 6px 14px 12px;
 }
 .stops { position: relative; }
-.stops::before {
+
+/* name | dir A | rail | dir B | riders. The two lane columns are the same
+   width, so the rail lands in the middle of the card and the two directions
+   read as mirror images either side of it. */
+.stop-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr) var(--lane) 15px var(--lane) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--stop-gap);
+  height: var(--stop-pitch);
+  position: relative;
+}
+
+/* The rail is drawn one segment per row rather than as a single line down the
+   column, so it follows the dot wherever the grid puts it. */
+.stop-dot {
+  grid-column: 3;
+  position: relative;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+.stop-dot::before {
   content: "";
   position: absolute;
-  left: 6px;
-  top: calc(var(--stop-pitch) / 2);
-  bottom: calc(var(--stop-pitch) / 2);
+  top: 0; bottom: 0; left: 50%;
   width: 3px;
+  margin-left: -1.5px;
   border-radius: 2px;
   background: var(--hue);
   opacity: 0.32;
 }
-
-.stops.is-empty::before { display: none; }
-
-.stop-row {
-  display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) 54px 42px;
-  align-items: center;
-  gap: 9px;
-  height: var(--stop-pitch);
+.stop-row:first-child .stop-dot::before { top: 50%; }
+.stop-row:last-child .stop-dot::before { bottom: 50%; }
+.stop-dot::after {
+  content: "";
   position: relative;
-}
-.stop-dot {
   width: 11px; height: 11px;
   border-radius: 50%;
   background: var(--surface);
   border: 3px solid var(--hue);
   box-sizing: border-box;
-  justify-self: start;
-  margin-left: 1px;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
-.stop-row.is-occupied .stop-dot {
+.stop-row.is-occupied .stop-dot::after {
   transform: scale(1.25);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .stop-name {
+  grid-column: 1;
+  text-align: right;
   font-size: 0.86rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.stop-metric {
+  grid-column: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 
-/* Turnstile magnitude: length carries the value, the hue only says which
-   line it belongs to. The number is always present next to the bar. */
+
 .meter {
+  flex: 1;
+  min-width: 0;
   height: 6px;
   border-radius: 3px;
   background: var(--surface-2);
@@ -344,6 +374,8 @@ body::before {
   transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .stop-val {
+  flex: none;
+  width: 42px;
   font-family: var(--font-mono);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
@@ -358,8 +390,8 @@ body::before {
   width: var(--lane);
   pointer-events: none;
 }
-.lane-a { left: 0; }
-.lane-b { right: 0; }
+.lane-a { right: calc(50% + 7.5px + var(--stop-gap)); }
+.lane-b { left: calc(50% + 7.5px + var(--stop-gap)); }
 
 .train {
   position: absolute;
@@ -384,10 +416,10 @@ body::before {
   transition: transform 0.85s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
 }
 .train.is-in { opacity: 1; }
-.lane-a .train { right: 3px; }
-.lane-b .train { left: 3px; }
-.lane-a .train::after { content: "\25B6"; color: var(--hue); font-size: 0.6em; }
-.lane-b .train::before { content: "\25C0"; color: var(--hue); font-size: 0.6em; }
+.lane-a .train { right: 0; }
+.lane-b .train { left: 0; }
+.lane-a .train::after { content: "\25B2"; color: var(--hue); font-size: 0.6em; }
+.lane-b .train::before { content: "\25BC"; color: var(--hue); font-size: 0.6em; }
 
 /* Broken down: dashed outline + glyph + a title, never colour on its own. */
 .train.is-broken {
@@ -424,9 +456,10 @@ body::before {
 footer.site { margin-top: 10px; border-top: 1px solid var(--rule); background: var(--surface); }
 .foot { padding-block: 20px; color: var(--fg-muted); font-size: 0.84rem; }
 
-@media (max-width: 420px) {
-  :root { --lane: 46px; }
-  .stop-row { grid-template-columns: 15px minmax(0, 1fr) 40px 38px; }
+@media (max-width: 560px) {
+  :root { --lane: 46px; --stop-gap: 6px; }
+  .stop-name { font-size: 0.8rem; }
+  .stop-val { width: 36px; font-size: 0.72rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
