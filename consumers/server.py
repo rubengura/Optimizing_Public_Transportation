@@ -1,10 +1,10 @@
 """Defines a Tornado Server that consumes Kafka Event data for display"""
 import logging
 import logging.config
+import time
 from pathlib import Path
 
 import tornado.ioloop
-import tornado.template
 import tornado.web
 
 
@@ -23,10 +23,16 @@ WEB_SERVER_PORT = 8888
 
 
 class MainHandler(tornado.web.RequestHandler):
-    """Defines a web request handler class"""
+    """Serves the dashboard shell; the data arrives from StatusHandler"""
 
-    template_dir = tornado.template.Loader(f"{Path(__file__).parents[0]}/templates")
-    template = template_dir.load("status.html")
+    def get(self):
+        """Responds to get requests"""
+        logging.debug("rendering and writing handler template")
+        self.render("status.html")
+
+
+class StatusHandler(tornado.web.RequestHandler):
+    """Serves the current state of the network as JSON"""
 
     def initialize(self, weather, lines):
         """Initializes the handler with required configuration"""
@@ -35,9 +41,38 @@ class MainHandler(tornado.web.RequestHandler):
 
     def get(self):
         """Responds to get requests"""
-        logging.debug("rendering and writing handler template")
+        lines = self.lines.to_dict()
+        stations = [station for line in lines for station in line["stations"]]
+        arrivals = [
+            arrival
+            for station in stations
+            for arrival in (station["dir_a"], station["dir_b"])
+            if arrival is not None
+        ]
+
+        # The browser polls this endpoint, so a cached response would freeze
+        # the board on whatever the first request happened to return.
+        self.set_header("Cache-Control", "no-store")
         self.write(
-            MainHandler.template.generate(weather=self.weather, lines=self.lines)
+            {
+                "generated_at": time.time(),
+                "weather": self.weather.to_dict(),
+                "lines": lines,
+                "totals": {
+                    "stations": len(stations),
+                    "trains": len(arrivals),
+                    "entries": sum(line["entries"] for line in lines),
+                    "broken_down": sum(
+                        1 for arrival in arrivals if arrival["status"] == "broken down"
+                    ),
+                },
+                # Normalising every turnstile bar against the busiest station in
+                # the whole network keeps a full bar meaning the same thing in
+                # all three columns.
+                "max_entries": max(
+                    (station["entries"] for station in stations), default=0
+                ),
+            }
         )
 
 
@@ -59,7 +94,12 @@ def run_server():
     lines = Lines()
 
     application = tornado.web.Application(
-        [(r"/", MainHandler, {"weather": weather_model, "lines": lines})]
+        [
+            (r"/", MainHandler),
+            (r"/api/status", StatusHandler, {"weather": weather_model, "lines": lines}),
+        ],
+        template_path=f"{Path(__file__).parents[0]}/templates",
+        static_path=f"{Path(__file__).parents[0]}/static",
     )
     application.listen(WEB_SERVER_PORT)
 

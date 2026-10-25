@@ -47,3 +47,10 @@ class Lines:
             self.blue_line.process_message(message)
         else:
             logger.debug("discarding unknown line msg %s", line)
+
+    def to_dict(self):
+        """Serializes every line, in the order the dashboard draws them"""
+        return [
+            line.to_dict()
+            for line in (self.blue_line, self.green_line, self.red_line)
+        ]

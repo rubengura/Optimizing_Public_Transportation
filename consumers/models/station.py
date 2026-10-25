@@ -1,5 +1,6 @@
 """Contains functionality related to Stations"""
 import logging
+import time
 
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ class Station:
         self.dir_a = None
         self.dir_b = None
         self.num_turnstile_entries = 0
+        self.last_arrival = None
 
     @classmethod
     def from_message(cls, value):
@@ -36,7 +38,23 @@ class Station:
             self.dir_a = status_dict
         else:
             self.dir_b = status_dict
+        self.last_arrival = time.monotonic()
 
     def process_message(self, json_data):
         """Handles arrival and turnstile messages"""
         self.num_turnstile_entries = json_data["TOTAL_ENTRIES"]
+
+    def to_dict(self):
+        """Serializes the station for the status API"""
+        since = None
+        if self.last_arrival is not None:
+            since = round(time.monotonic() - self.last_arrival, 1)
+        return {
+            "id": self.station_id,
+            "name": self.station_name,
+            "order": self.order,
+            "entries": self.num_turnstile_entries,
+            "dir_a": self.dir_a,
+            "dir_b": self.dir_b,
+            "since": since,
+        }

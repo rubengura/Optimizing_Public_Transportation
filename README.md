@@ -4,7 +4,11 @@ A streaming event pipeline built around Apache Kafka and its ecosystem. Using pu
 [Chicago Transit Authority](https://www.transitchicago.com/data/), it simulates the "L" train network
 and displays the status of every line in real time.
 
-![Final User Interface](images/ui.png)
+![The transit status dashboard, updating live](images/dashboard.gif)
+
+*Trains slide between stops as arrivals come off the topic, turnstile counts climb, and
+the board switches to its dark theme halfway through. Recorded against the running stack;
+the simulation runs at sixty times real time.*
 
 > **New here?** Open [`docs/index.html`](docs/index.html) in a browser for an illustrated walkthrough
 > of how the pipeline works, stage by stage. No Kafka knowledge assumed.
@@ -40,7 +44,8 @@ Six stages, each feeding the next:
 | Faust | Trims the raw station rows and resolves the line colour | `chicago.transport.stations.table` |
 | ksqlDB | Aggregates turnstile events into a running count per station | `TURNSTILE_SUMMARY` |
 
-The Tornado web server consumes the last four topics and renders the dashboard.
+The Tornado web server consumes the last four topics and serves them as JSON on
+`/api/status`; the dashboard is drawn in the browser from that feed.
 
 ## Prerequisites
 
@@ -125,7 +130,8 @@ cd consumers && . venv/bin/activate
 python server.py
 ```
 
-Then open http://localhost:8888. The page refreshes every ten seconds.
+Then open http://localhost:8888. The board polls `/api/status` every four seconds and
+updates in place, so trains slide between stations instead of the page reloading.
 
 The server refuses to start until `TURNSTILE_SUMMARY` and the Faust stations table exist, so run
 steps 2 and 3 first.
@@ -178,7 +184,8 @@ experimental and likely to be removed.
 │   ├── topic_check.py           Startup preflight checks
 │   ├── models/                  Line, Station and Weather view models
 │   ├── tests/                   Routing and view-model tests
-│   └── templates/status.html
+│   ├── templates/status.html    Dashboard shell, no data: the browser fills it
+│   └── static/                  dashboard.css, dashboard.js, theme.js
 └── producers
     ├── simulation.py            Entry point for the whole producer side
     ├── connector.py             Registers the JDBC source connector

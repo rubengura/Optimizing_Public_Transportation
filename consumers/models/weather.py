@@ -26,3 +26,7 @@ class Weather:
             self.status = value["status"]
         except Exception as e:
             logger.fatal(f"unable to process weather message: {message}, {e}")
+
+    def to_dict(self):
+        """Serializes the weather for the status API"""
+        return {"temperature": self.temperature, "status": self.status}
